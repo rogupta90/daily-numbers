@@ -5,7 +5,6 @@ import {
   expressionToString,
   getScore,
   getScoreLabel,
-  getScoreEmoji,
   saveResult,
   hasPlayedToday,
   getTodayResult,
@@ -18,14 +17,12 @@ import {
   type Stats,
 } from './game';
 
-// A number tile in the pool — original or derived from an intermediate step
 interface Tile {
   id: number;
   value: number;
   derived: boolean;
 }
 
-// A completed intermediate calculation
 interface Step {
   tokens: Token[];
   expression: string;
@@ -41,22 +38,17 @@ let nextDerivedId = 100;
 export default function App() {
   const [screen, setScreen] = useState<Screen>('home');
   const [puzzle, setPuzzle] = useState<Puzzle>(() => generatePuzzle());
-
-  // Tile pool: starts as original 6, grows with intermediate results
   const [tiles, setTiles] = useState<Tile[]>([]);
   const [steps, setSteps] = useState<Step[]>([]);
   const [tokens, setTokens] = useState<Token[]>([]);
-  // Tiles used in the CURRENT expression (not yet committed)
   const [pendingTileIds, setPendingTileIds] = useState<Set<number>>(new Set());
-  // Tiles consumed by completed steps (permanently unavailable unless step is undone)
   const [consumedTileIds, setConsumedTileIds] = useState<Set<number>>(new Set());
-  // Best answer seen across all steps
   const [bestAnswer, setBestAnswer] = useState<number | null>(null);
-
   const [timeLeft, setTimeLeft] = useState(45);
   const [result, setResult] = useState<GameResult | null>(null);
   const [stats, setStats] = useState<Stats>(getStats());
   const [copied, setCopied] = useState(false);
+  const [finishing, setFinishing] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const finishedRef = useRef(false);
 
@@ -71,11 +63,8 @@ export default function App() {
   const expectingNumber = tokens.length === 0 || tokens[tokens.length - 1].type === 'op';
   const currentValue = evaluateExpression(tokens);
   const canEvaluate = !expectingNumber && tokens.length >= 3;
-
-  // All unavailable tile ids (consumed by steps + used in current expression)
   const unavailableTileIds = new Set([...consumedTileIds, ...pendingTileIds]);
 
-  // The "answer" to submit: best of (current expression value, best intermediate result)
   const effectiveAnswer = (() => {
     const candidates: number[] = [];
     if (bestAnswer !== null) candidates.push(bestAnswer);
@@ -101,7 +90,6 @@ export default function App() {
     setScreen('playing');
   }, []);
 
-  // Timer
   useEffect(() => {
     if (screen !== 'playing') return;
     timerRef.current = setInterval(() => {
@@ -118,8 +106,6 @@ export default function App() {
     };
   }, [screen]);
 
-  const [finishing, setFinishing] = useState(false);
-
   const handleFinish = useCallback(() => {
     if (finishedRef.current) return;
     finishedRef.current = true;
@@ -131,7 +117,6 @@ export default function App() {
     if (!finishing) return;
     setFinishing(false);
 
-    // Determine best answer: check current expression + bestAnswer
     const candidates: number[] = [];
     if (bestAnswer !== null) candidates.push(bestAnswer);
     if (currentValue !== null && !expectingNumber) candidates.push(currentValue);
@@ -144,7 +129,6 @@ export default function App() {
 
     const score = getScore(puzzle.target, answer);
 
-    // Build expression summary from all steps + current
     const allExprs: string[] = [];
     for (const s of steps) {
       allExprs.push(`${s.expression} = ${s.result}`);
@@ -173,7 +157,6 @@ export default function App() {
     setScreen('result');
   }, [finishing]);
 
-  // Time's up
   useEffect(() => {
     if (timeLeft === 0 && screen === 'playing') {
       handleFinish();
@@ -194,7 +177,6 @@ export default function App() {
   };
 
   const undo = () => {
-    // If current expression has tokens, undo last token
     if (tokens.length > 0) {
       const last = tokens[tokens.length - 1];
       if (last.type === 'number') {
@@ -207,26 +189,17 @@ export default function App() {
       setTokens(prev => prev.slice(0, -1));
       return;
     }
-
-    // If no current expression but there are steps, undo last step
     if (steps.length > 0) {
       const lastStep = steps[steps.length - 1];
-      // Remove the derived tile
       setTiles(prev => prev.filter(t => t.id !== lastStep.producedTileId));
-      // Restore consumed tiles
       setConsumedTileIds(prev => {
         const next = new Set(prev);
-        for (const id of lastStep.consumedTileIds) {
-          next.delete(id);
-        }
+        for (const id of lastStep.consumedTileIds) next.delete(id);
         return next;
       });
-      // Restore the expression from that step
       setTokens(lastStep.tokens);
       setPendingTileIds(new Set(lastStep.consumedTileIds));
       setSteps(prev => prev.slice(0, -1));
-
-      // Recalculate best answer
       const remainingSteps = steps.slice(0, -1);
       if (remainingSteps.length === 0) {
         setBestAnswer(null);
@@ -240,19 +213,15 @@ export default function App() {
   };
 
   const clearExpression = () => {
-    // Only clear the current expression, not steps
     setPendingTileIds(new Set());
     setTokens([]);
   };
 
-  // = button: evaluate current expression, add result to tile pool
   const evaluate = () => {
     if (!canEvaluate || currentValue === null) return;
-
     const newTileId = nextDerivedId++;
     const newTile: Tile = { id: newTileId, value: currentValue, derived: true };
     const consumedIds = [...pendingTileIds];
-
     const step: Step = {
       tokens: [...tokens],
       expression: expressionToString(tokens),
@@ -260,13 +229,10 @@ export default function App() {
       consumedTileIds: consumedIds,
       producedTileId: newTileId,
     };
-
-    // Update best answer
     const newBest = bestAnswer === null
       ? currentValue
       : Math.abs(currentValue - puzzle.target) < Math.abs(bestAnswer - puzzle.target)
-        ? currentValue
-        : bestAnswer;
+        ? currentValue : bestAnswer;
 
     setTiles(prev => [...prev, newTile]);
     setSteps(prev => [...prev, step]);
@@ -307,48 +273,87 @@ export default function App() {
   }
 
   if (screen === 'result' && result) {
-    const emoji = getScoreEmoji(result.score);
     const label = getScoreLabel(result.score);
+    const scoreColor = result.score === 0 ? 'var(--accent)' : result.score <= 10 ? 'var(--amber)' : 'var(--red)';
+
     return (
       <div className="flex flex-col items-center justify-center min-h-dvh px-4 py-8">
-        <div className="text-6xl mb-4">{emoji}</div>
-        <h1 className="text-3xl font-bold mb-1" style={{ color: 'var(--text)' }}>
-          {label}
-        </h1>
-        <p className="text-lg mb-6" style={{ color: 'var(--text-muted)' }}>
-          Countdown #{result.dayNumber}
-        </p>
+        {/* Score hero */}
+        <div
+          className="font-mono text-7xl font-extrabold mb-2"
+          style={{ color: scoreColor }}
+        >
+          {result.score === 0 ? '0' : result.score}
+        </div>
+        <div className="text-sm font-medium uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
+          {result.score === 0 ? label : `${label} — ${result.score} off`}
+        </div>
+        <div className="text-xs mb-8" style={{ color: 'var(--text-dim)' }}>
+          Daily Numbers #{result.dayNumber}
+        </div>
 
-        <div className="rounded-2xl p-6 mb-6 w-full max-w-sm" style={{ background: 'var(--surface)' }}>
-          <div className="text-sm uppercase tracking-wider mb-1" style={{ color: 'var(--text-dim)' }}>Target</div>
-          <div className="text-5xl font-bold mb-4 tabular-nums">{result.target}</div>
-
-          <div className="text-sm uppercase tracking-wider mb-1" style={{ color: 'var(--text-dim)' }}>Your answer</div>
-          <div className="text-3xl font-bold mb-1 tabular-nums" style={{ color: result.score === 0 ? 'var(--success)' : 'var(--text)' }}>
-            {result.answer ?? '—'}
-          </div>
-          <div className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>
-            {result.expression}
+        {/* Result card */}
+        <div
+          className="rounded-lg p-6 mb-6 w-full max-w-sm"
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
+        >
+          <div className="flex justify-between items-start mb-5">
+            <div>
+              <div className="text-[10px] uppercase tracking-widest mb-1" style={{ color: 'var(--text-dim)' }}>Target</div>
+              <div className="font-mono text-4xl font-bold">{result.target}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-[10px] uppercase tracking-widest mb-1" style={{ color: 'var(--text-dim)' }}>Answer</div>
+              <div className="font-mono text-4xl font-bold" style={{ color: result.score === 0 ? 'var(--accent)' : 'var(--text)' }}>
+                {result.answer ?? '—'}
+              </div>
+            </div>
           </div>
 
           {result.score > 0 && (
-            <div className="text-lg font-semibold" style={{ color: result.score <= 10 ? 'var(--warning)' : 'var(--danger)' }}>
+            <div className="text-center py-2 rounded-md font-mono text-sm font-semibold"
+              style={{
+                background: result.score <= 10 ? 'var(--amber-dim)' : 'var(--red-dim)',
+                color: result.score <= 10 ? 'var(--amber)' : 'var(--red)',
+              }}
+            >
               {result.score} away
             </div>
           )}
+          {result.score === 0 && (
+            <div className="text-center py-2 rounded-md font-mono text-sm font-semibold"
+              style={{ background: 'var(--accent-dim)', color: 'var(--accent)' }}
+            >
+              Exact match
+            </div>
+          )}
+
+          <div className="mt-4 pt-4 text-xs font-mono" style={{ borderTop: '1px solid var(--border)', color: 'var(--text-dim)' }}>
+            {result.expression}
+          </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3 w-full max-w-sm mb-6">
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-2 w-full max-w-sm mb-6">
           <StatBox label="Played" value={stats.played} />
-          <StatBox label="Perfects" value={stats.perfectCount} />
+          <StatBox label="Exact" value={stats.perfectCount} />
           <StatBox label="Streak" value={stats.currentStreak} />
         </div>
 
-        <div className="flex gap-3 w-full max-w-sm">
-          <button onClick={share} className="flex-1 py-3 rounded-xl text-lg font-semibold text-white cursor-pointer" style={{ background: 'var(--accent)' }}>
-            {copied ? 'Copied!' : 'Share'}
+        {/* Actions */}
+        <div className="flex gap-2 w-full max-w-sm">
+          <button
+            onClick={share}
+            className="flex-1 py-3 rounded-lg text-sm font-semibold uppercase tracking-wider cursor-pointer"
+            style={{ background: 'var(--accent)', color: 'var(--accent-text)' }}
+          >
+            {copied ? 'Copied' : 'Share'}
           </button>
-          <button onClick={() => { setStats(getStats()); setScreen('history'); }} className="flex-1 py-3 rounded-xl text-lg font-semibold cursor-pointer" style={{ background: 'var(--surface)', color: 'var(--text)' }}>
+          <button
+            onClick={() => { setStats(getStats()); setScreen('history'); }}
+            className="flex-1 py-3 rounded-lg text-sm font-semibold uppercase tracking-wider cursor-pointer"
+            style={{ background: 'var(--surface)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}
+          >
             History
           </button>
         </div>
@@ -357,32 +362,32 @@ export default function App() {
   }
 
   if (screen === 'playing') {
-    const timerColor = timeLeft <= 10 ? 'var(--danger)' : timeLeft <= 20 ? 'var(--warning)' : 'var(--text)';
+    const timerColor = timeLeft <= 10 ? 'var(--red)' : timeLeft <= 20 ? 'var(--amber)' : 'var(--accent)';
     const timerPct = (timeLeft / 45) * 100;
-
-    // Determine distance for effective answer
     const effectiveDist = effectiveAnswer !== null ? Math.abs(effectiveAnswer - puzzle.target) : null;
 
     return (
       <div className="flex flex-col min-h-dvh px-4 py-4">
-        {/* Timer bar */}
-        <div className="w-full max-w-sm mx-auto mb-2 rounded-full h-2 overflow-hidden" style={{ background: 'var(--surface)' }}>
-          <div
-            className="h-full rounded-full transition-all duration-1000 ease-linear"
-            style={{ width: `${timerPct}%`, background: timerColor }}
-          />
+        {/* Timer */}
+        <div className="w-full max-w-sm mx-auto mb-1">
+          <div className="rounded-full h-1 overflow-hidden" style={{ background: 'var(--border)' }}>
+            <div
+              className="h-full rounded-full transition-all duration-1000 ease-linear"
+              style={{ width: `${timerPct}%`, background: timerColor }}
+            />
+          </div>
         </div>
-        <div className="text-center text-2xl font-bold tabular-nums mb-3" style={{ color: timerColor }}>
-          {timeLeft}s
+        <div className="text-center font-mono text-lg font-bold tabular-nums mb-3" style={{ color: timerColor }}>
+          {String(timeLeft).padStart(2, '0')}
         </div>
 
-        {/* Target + best so far */}
+        {/* Target */}
         <div className="text-center mb-3">
-          <div className="text-sm uppercase tracking-wider" style={{ color: 'var(--text-dim)' }}>Target</div>
-          <div className="text-5xl font-bold tabular-nums">{puzzle.target}</div>
+          <div className="text-[10px] uppercase tracking-widest mb-1" style={{ color: 'var(--text-dim)' }}>Target</div>
+          <div className="font-mono text-5xl font-extrabold tracking-tight">{puzzle.target}</div>
           {effectiveAnswer !== null && (
-            <div className="text-sm mt-1 font-medium" style={{ color: effectiveDist === 0 ? 'var(--success)' : 'var(--text-muted)' }}>
-              {effectiveDist === 0 ? 'Perfect!' : `Best so far: ${effectiveAnswer} (${effectiveDist} away)`}
+            <div className="font-mono text-xs mt-1.5 font-medium" style={{ color: effectiveDist === 0 ? 'var(--accent)' : 'var(--text-dim)' }}>
+              {effectiveDist === 0 ? 'EXACT' : `Best: ${effectiveAnswer} (${effectiveDist} off)`}
             </div>
           )}
         </div>
@@ -393,12 +398,12 @@ export default function App() {
             {steps.map((s, i) => (
               <div
                 key={i}
-                className="rounded-lg px-3 py-1.5 text-sm font-mono flex justify-between items-center"
-                style={{ background: 'var(--surface)', color: 'var(--text-muted)' }}
+                className="rounded-md px-3 py-1.5 text-xs font-mono flex justify-between items-center"
+                style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
               >
-                <span>{s.expression}</span>
+                <span style={{ color: 'var(--text-dim)' }}>{s.expression}</span>
                 <span className="font-bold" style={{
-                  color: s.result === puzzle.target ? 'var(--success)' : 'var(--text)'
+                  color: s.result === puzzle.target ? 'var(--accent)' : 'var(--text)'
                 }}>= {s.result}</span>
               </div>
             ))}
@@ -406,16 +411,19 @@ export default function App() {
         )}
 
         {/* Current expression */}
-        <div className="w-full max-w-sm mx-auto rounded-xl p-4 mb-1 min-h-[56px] flex items-center justify-center" style={{ background: 'var(--surface)' }}>
+        <div
+          className="w-full max-w-sm mx-auto rounded-lg p-3 mb-1 min-h-[52px] flex items-center justify-center"
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
+        >
           {tokens.length === 0 ? (
-            <span style={{ color: 'var(--text-dim)' }}>
-              {steps.length > 0 ? 'Continue building...' : 'Tap a number to start'}
+            <span className="text-xs uppercase tracking-widest" style={{ color: 'var(--text-dim)' }}>
+              {steps.length > 0 ? 'Continue...' : 'Tap a number'}
             </span>
           ) : (
-            <span className="text-2xl font-mono font-bold tabular-nums">
+            <span className="font-mono text-xl font-bold tabular-nums">
               {expressionToString(tokens)}
               {currentValue !== null && tokens.length >= 3 && !expectingNumber && (
-                <span style={{ color: currentValue === puzzle.target ? 'var(--success)' : 'var(--text-muted)' }}>
+                <span style={{ color: currentValue === puzzle.target ? 'var(--accent)' : 'var(--text-dim)' }}>
                   {' '}= {currentValue}
                 </span>
               )}
@@ -423,11 +431,10 @@ export default function App() {
           )}
         </div>
 
-        {/* Spacer for consistent layout */}
         <div className="h-2" />
 
         {/* Number tiles */}
-        <div className="grid grid-cols-3 gap-2 w-full max-w-sm mx-auto mb-3">
+        <div className="grid grid-cols-3 gap-1.5 w-full max-w-sm mx-auto mb-2">
           {tiles.filter(t => !consumedTileIds.has(t.id)).map(tile => {
             const isUsedInExpr = pendingTileIds.has(tile.id);
             const isOrigLarge = !tile.derived && tile.id === 0;
@@ -436,22 +443,28 @@ export default function App() {
                 key={tile.id}
                 disabled={isUsedInExpr || !expectingNumber}
                 onClick={() => tapNumber(tile.id, tile.value)}
-                className="py-3.5 rounded-xl text-2xl font-bold transition-all cursor-pointer relative"
+                className="py-3 rounded-lg font-mono text-xl font-bold transition-all cursor-pointer"
                 style={{
                   background: isUsedInExpr
                     ? 'var(--bg)'
                     : tile.derived
-                      ? 'var(--success)'
+                      ? 'var(--derived-dim)'
+                      : isOrigLarge
+                        ? 'var(--accent-dim)'
+                        : 'var(--surface)',
+                  color: isUsedInExpr
+                    ? 'var(--text-dim)'
+                    : tile.derived
+                      ? 'var(--derived)'
                       : isOrigLarge
                         ? 'var(--accent)'
-                        : 'var(--surface)',
-                  color: isUsedInExpr ? 'var(--text-dim)' : 'var(--text)',
-                  opacity: isUsedInExpr ? 0.4 : (!expectingNumber ? 0.5 : 1),
+                        : 'var(--text)',
+                  opacity: isUsedInExpr ? 0.3 : (!expectingNumber ? 0.4 : 1),
                   border: tile.derived && !isUsedInExpr
-                    ? '2px solid var(--success)'
+                    ? '1px solid var(--derived)'
                     : isOrigLarge && !isUsedInExpr
-                      ? '2px solid var(--accent-hover)'
-                      : '2px solid transparent',
+                      ? '1px solid var(--accent)'
+                      : '1px solid var(--border)',
                 }}
               >
                 {tile.value}
@@ -461,7 +474,7 @@ export default function App() {
         </div>
 
         {/* Operators */}
-        <div className="grid grid-cols-4 gap-2 w-full max-w-sm mx-auto mb-3">
+        <div className="grid grid-cols-4 gap-1.5 w-full max-w-sm mx-auto mb-2">
           {['+', '−', '×', '÷'].map(op => {
             const actualOp = op === '−' ? '-' : op;
             return (
@@ -469,11 +482,12 @@ export default function App() {
                 key={op}
                 disabled={expectingNumber}
                 onClick={() => tapOp(actualOp)}
-                className="py-3 rounded-xl text-2xl font-bold transition-all cursor-pointer"
+                className="py-2.5 rounded-lg font-mono text-lg font-bold transition-all cursor-pointer"
                 style={{
-                  background: 'var(--surface)',
-                  color: expectingNumber ? 'var(--text-dim)' : 'var(--warning)',
+                  background: expectingNumber ? 'var(--surface)' : 'var(--amber-dim)',
+                  color: expectingNumber ? 'var(--text-dim)' : 'var(--amber)',
                   opacity: expectingNumber ? 0.4 : 1,
+                  border: expectingNumber ? '1px solid var(--border)' : '1px solid var(--amber)',
                 }}
               >
                 {op}
@@ -482,21 +496,30 @@ export default function App() {
           })}
         </div>
 
-        {/* Action buttons */}
-        <div className="grid grid-cols-3 gap-2 w-full max-w-sm mx-auto mb-3">
-          <button onClick={clearExpression} className="py-3 rounded-xl font-semibold cursor-pointer" style={{ background: 'var(--surface)', color: 'var(--text-muted)' }}>
+        {/* Controls row */}
+        <div className="grid grid-cols-3 gap-1.5 w-full max-w-sm mx-auto mb-2">
+          <button
+            onClick={clearExpression}
+            className="py-2.5 rounded-lg text-xs font-semibold uppercase tracking-wider cursor-pointer"
+            style={{ background: 'var(--surface)', color: 'var(--text-dim)', border: '1px solid var(--border)' }}
+          >
             Clear
           </button>
-          <button onClick={undo} className="py-3 rounded-xl font-semibold cursor-pointer" style={{ background: 'var(--surface)', color: 'var(--text-muted)' }}>
+          <button
+            onClick={undo}
+            className="py-2.5 rounded-lg text-xs font-semibold uppercase tracking-wider cursor-pointer"
+            style={{ background: 'var(--surface)', color: 'var(--text-dim)', border: '1px solid var(--border)' }}
+          >
             Undo
           </button>
           <button
             onClick={evaluate}
             disabled={!canEvaluate}
-            className="py-3 rounded-xl font-bold text-xl cursor-pointer"
+            className="py-2.5 rounded-lg font-mono text-lg font-bold cursor-pointer"
             style={{
-              background: canEvaluate ? 'var(--warning)' : 'var(--surface)',
-              color: canEvaluate ? 'var(--bg)' : 'var(--text-dim)',
+              background: canEvaluate ? 'var(--accent-dim)' : 'var(--surface)',
+              color: canEvaluate ? 'var(--accent)' : 'var(--text-dim)',
+              border: canEvaluate ? '1px solid var(--accent)' : '1px solid var(--border)',
             }}
           >
             =
@@ -506,13 +529,14 @@ export default function App() {
         {/* Submit */}
         <button
           onClick={handleFinish}
-          className="w-full max-w-sm mx-auto py-3 rounded-xl text-lg font-bold cursor-pointer"
+          className="w-full max-w-sm mx-auto py-3 rounded-lg text-sm font-bold uppercase tracking-wider cursor-pointer"
           style={{
-            background: effectiveAnswer !== null ? 'var(--success)' : 'var(--surface)',
-            color: effectiveAnswer !== null ? 'white' : 'var(--text-dim)',
+            background: effectiveAnswer !== null ? 'var(--accent)' : 'var(--surface)',
+            color: effectiveAnswer !== null ? 'var(--accent-text)' : 'var(--text-dim)',
+            border: effectiveAnswer !== null ? 'none' : '1px solid var(--border)',
           }}
         >
-          Submit{effectiveAnswer !== null ? ` (${effectiveAnswer})` : ''}
+          Submit{effectiveAnswer !== null ? ` → ${effectiveAnswer}` : ''}
         </button>
       </div>
     );
@@ -521,23 +545,37 @@ export default function App() {
   // HOME
   return (
     <div className="flex flex-col items-center justify-center min-h-dvh px-4">
-      <div className="mb-8 text-center">
-        <h1 className="text-5xl font-bold mb-2">Countdown</h1>
-        <p className="text-lg" style={{ color: 'var(--text-muted)' }}>Daily numbers puzzle</p>
+      {/* Title */}
+      <div className="mb-10 text-center">
+        <div className="font-mono text-[10px] uppercase tracking-[0.3em] mb-3" style={{ color: 'var(--text-dim)' }}>
+          — Daily —
+        </div>
+        <h1 className="font-mono text-4xl font-extrabold tracking-tight mb-2">
+          Numbers
+        </h1>
+        <div className="w-8 h-px mx-auto mb-3" style={{ background: 'var(--accent)' }} />
+        <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+          6 numbers. 1 target. 45 seconds.
+        </p>
       </div>
 
-      <div className="rounded-2xl p-6 mb-6 w-full max-w-xs text-center" style={{ background: 'var(--surface)' }}>
-        <div className="text-sm uppercase tracking-wider mb-1" style={{ color: 'var(--text-dim)' }}>Today's puzzle</div>
-        <div className="text-lg font-semibold">#{puzzle.dayNumber}</div>
-        <div className="mt-3 text-sm" style={{ color: 'var(--text-muted)' }}>
-          6 numbers. 1 target. 45 seconds.
+      {/* Puzzle card */}
+      <div
+        className="rounded-lg p-5 mb-6 w-full max-w-xs text-center"
+        style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
+      >
+        <div className="text-[10px] uppercase tracking-widest mb-1" style={{ color: 'var(--text-dim)' }}>
+          Puzzle
+        </div>
+        <div className="font-mono text-2xl font-bold">
+          #{String(puzzle.dayNumber).padStart(3, '0')}
         </div>
       </div>
 
       <button
         onClick={startGame}
-        className="w-full max-w-xs py-4 rounded-xl text-xl font-bold text-white mb-4 active:scale-95 transition-transform cursor-pointer"
-        style={{ background: 'var(--accent)' }}
+        className="w-full max-w-xs py-3.5 rounded-lg text-sm font-bold uppercase tracking-wider mb-4 active:scale-[0.98] transition-transform cursor-pointer"
+        style={{ background: 'var(--accent)', color: 'var(--accent-text)' }}
       >
         Play
       </button>
@@ -545,8 +583,8 @@ export default function App() {
       {getHistory().length > 0 && (
         <button
           onClick={() => { setStats(getStats()); setScreen('history'); }}
-          className="text-lg font-semibold cursor-pointer"
-          style={{ color: 'var(--text-muted)', background: 'none', border: 'none' }}
+          className="text-xs font-semibold uppercase tracking-widest cursor-pointer"
+          style={{ color: 'var(--text-dim)', background: 'none', border: 'none' }}
         >
           History
         </button>
@@ -557,9 +595,9 @@ export default function App() {
 
 function StatBox({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="rounded-xl p-3 text-center" style={{ background: 'var(--surface)' }}>
-      <div className="text-2xl font-bold tabular-nums">{value}</div>
-      <div className="text-xs uppercase tracking-wider" style={{ color: 'var(--text-dim)' }}>{label}</div>
+    <div className="rounded-lg p-3 text-center" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+      <div className="font-mono text-xl font-bold tabular-nums">{value}</div>
+      <div className="text-[10px] uppercase tracking-widest mt-0.5" style={{ color: 'var(--text-dim)' }}>{label}</div>
     </div>
   );
 }
@@ -571,43 +609,56 @@ function HistoryScreen({ onBack }: { onBack: () => void }) {
   return (
     <div className="flex flex-col min-h-dvh px-4 py-6">
       <div className="flex items-center mb-6 max-w-sm mx-auto w-full">
-        <button onClick={onBack} className="text-lg font-semibold cursor-pointer" style={{ color: 'var(--accent)', background: 'none', border: 'none' }}>
+        <button
+          onClick={onBack}
+          className="text-xs font-semibold uppercase tracking-widest cursor-pointer"
+          style={{ color: 'var(--text-muted)', background: 'none', border: 'none' }}
+        >
           Back
         </button>
-        <h1 className="text-2xl font-bold flex-1 text-center mr-12">History</h1>
+        <h1 className="font-mono text-lg font-bold flex-1 text-center mr-8">History</h1>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 w-full max-w-sm mx-auto mb-6">
+      <div className="grid grid-cols-2 gap-2 w-full max-w-sm mx-auto mb-6">
         <StatBox label="Played" value={stats.played} />
-        <StatBox label="Perfects" value={stats.perfectCount} />
+        <StatBox label="Exact" value={stats.perfectCount} />
         <StatBox label="Best" value={stats.bestScore === Infinity ? '—' : stats.bestScore} />
-        <StatBox label="Avg Distance" value={stats.averageScore} />
+        <StatBox label="Avg" value={stats.averageScore} />
         <StatBox label="Streak" value={stats.currentStreak} />
-        <StatBox label="Max Streak" value={stats.maxStreak} />
+        <StatBox label="Max" value={stats.maxStreak} />
       </div>
 
-      <div className="w-full max-w-sm mx-auto space-y-2 overflow-y-auto flex-1">
+      <div className="w-full max-w-sm mx-auto space-y-1.5 overflow-y-auto flex-1">
         {history.length === 0 ? (
-          <p className="text-center py-8" style={{ color: 'var(--text-dim)' }}>No games yet</p>
+          <p className="text-center py-8 text-xs uppercase tracking-widest" style={{ color: 'var(--text-dim)' }}>
+            No games yet
+          </p>
         ) : (
-          history.map(r => (
-            <div key={r.dayNumber} className="rounded-xl p-4 flex items-center justify-between" style={{ background: 'var(--surface)' }}>
-              <div>
-                <div className="font-semibold">#{r.dayNumber}</div>
-                <div className="text-sm" style={{ color: 'var(--text-muted)' }}>
-                  Target: {r.target}
+          history.map(r => {
+            const color = r.score === 0 ? 'var(--accent)' : r.score <= 10 ? 'var(--amber)' : 'var(--red)';
+            return (
+              <div
+                key={r.dayNumber}
+                className="rounded-lg p-3.5 flex items-center justify-between"
+                style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
+              >
+                <div>
+                  <div className="font-mono text-sm font-bold">#{String(r.dayNumber).padStart(3, '0')}</div>
+                  <div className="font-mono text-xs" style={{ color: 'var(--text-dim)' }}>
+                    {r.target} → {r.answer ?? '—'}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="font-mono text-lg font-extrabold" style={{ color }}>
+                    {r.score === 0 ? 'Exact' : r.score}
+                  </div>
+                  {r.score > 0 && (
+                    <div className="text-[10px] uppercase tracking-widest" style={{ color: 'var(--text-dim)' }}>off</div>
+                  )}
                 </div>
               </div>
-              <div className="text-right">
-                <div className="text-xl font-bold tabular-nums" style={{ color: r.score === 0 ? 'var(--success)' : 'var(--text)' }}>
-                  {r.score === 0 ? 'Perfect' : r.score}
-                </div>
-                <div className="text-xs" style={{ color: 'var(--text-dim)' }}>
-                  {r.score === 0 ? '' : 'away'}
-                </div>
-              </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>

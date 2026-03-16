@@ -122,20 +122,13 @@ export function getScore(target: number, answer: number | null): number {
 }
 
 export function getScoreLabel(score: number): string {
-  if (score === 0) return 'Perfect!';
-  if (score <= 5) return 'So close!';
-  if (score <= 10) return 'Not bad!';
-  if (score <= 25) return 'Good effort';
-  return 'Keep trying';
+  if (score === 0) return 'Exact';
+  if (score <= 5) return 'Close';
+  if (score <= 10) return 'Near';
+  if (score <= 25) return 'Fair';
+  return 'Off';
 }
 
-export function getScoreEmoji(score: number): string {
-  if (score === 0) return '🎯';
-  if (score <= 5) return '🔥';
-  if (score <= 10) return '👏';
-  if (score <= 25) return '💪';
-  return '🎲';
-}
 
 // History / persistence
 export interface GameResult {
@@ -230,16 +223,15 @@ export function getStats(): Stats {
 }
 
 export function getShareText(result: GameResult): string {
-  const emoji = getScoreEmoji(result.score);
-  const label = result.score === 0 ? 'Bang on!' : `${result.score} away`;
   const stats = getStats();
 
-  let text = `Countdown #${result.dayNumber} ${emoji}\n`;
-  text += `Target: ${result.target}\n`;
-  text += `${label}`;
+  const lines = [
+    `Daily Numbers #${result.dayNumber}`,
+    `${result.target} → ${result.answer ?? '—'} [${result.score === 0 ? 'EXACT' : `${result.score} off`}]`,
+  ];
   if (stats.currentStreak > 1) {
-    text += `\nStreak: ${stats.currentStreak} days`;
+    lines.push(`Streak: ${stats.currentStreak}`);
   }
-  text += `\n\nPlay at countdown.game`; // placeholder URL
-  return text;
+  lines.push('', 'dailynumbers.game'); // placeholder URL
+  return lines.join('\n');
 }

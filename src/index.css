@@ -1,35 +1,48 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+
 @import "tailwindcss";
 
 :root {
-  --bg: #0f172a;
-  --surface: #1e293b;
-  --surface-hover: #334155;
-  --accent: #3b82f6;
-  --accent-hover: #2563eb;
-  --success: #22c55e;
-  --warning: #eab308;
-  --danger: #ef4444;
-  --text: #f8fafc;
-  --text-muted: #94a3b8;
-  --text-dim: #64748b;
+  --bg: #08090e;
+  --surface: #12141c;
+  --surface-alt: #1a1d28;
+  --border: #1e2130;
+  --accent: #00e4a0;
+  --accent-dim: rgba(0, 228, 160, 0.15);
+  --accent-text: #08090e;
+  --amber: #f0a830;
+  --amber-dim: rgba(240, 168, 48, 0.15);
+  --red: #e8453c;
+  --red-dim: rgba(232, 69, 60, 0.15);
+  --text: #e8eaf0;
+  --text-muted: #6b7394;
+  --text-dim: #3d4263;
+  --derived: #a78bfa;
+  --derived-dim: rgba(167, 139, 250, 0.15);
 }
 
 * {
   -webkit-tap-highlight-color: transparent;
   user-select: none;
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   min-height: 100dvh;
   overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
 #root {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
 }
