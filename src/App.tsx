@@ -11,11 +11,22 @@ import {
   getStats,
   getShareText,
   getHistory,
+  getScoreDistribution,
   type Token,
   type Puzzle,
   type GameResult,
   type Stats,
 } from './game';
+
+// Deterministic confetti pieces (no Math.random — stable across re-renders)
+const CONFETTI = Array.from({ length: 30 }, (_, i) => ({
+  left: ((i * 37 + 13) % 100),
+  color: ['#00e4a0', '#f0a830', '#a78bfa', '#e8eaf0', '#00e4a0'][i % 5],
+  delay: (i % 6) * 0.12,
+  duration: 1.8 + (i % 4) * 0.5,
+  size: [6, 8, 10, 7, 9][i % 5],
+  round: i % 3 === 0,
+}));
 
 interface Tile {
   id: number;
@@ -49,6 +60,7 @@ export default function App() {
   const [stats, setStats] = useState<Stats>(getStats());
   const [copied, setCopied] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const finishedRef = useRef(false);
 
@@ -75,7 +87,7 @@ export default function App() {
     );
   })();
 
-  const startGame = useCallback(() => {
+  const beginGame = useCallback(() => {
     const p = generatePuzzle();
     setPuzzle(p);
     nextDerivedId = 100;
@@ -89,6 +101,20 @@ export default function App() {
     finishedRef.current = false;
     setScreen('playing');
   }, []);
+
+  const startGame = useCallback(() => {
+    if (!localStorage.getItem('countdown_seen_onboarding')) {
+      setShowOnboarding(true);
+      return;
+    }
+    beginGame();
+  }, [beginGame]);
+
+  const dismissOnboarding = useCallback(() => {
+    localStorage.setItem('countdown_seen_onboarding', '1');
+    setShowOnboarding(false);
+    beginGame();
+  }, [beginGame]);
 
   useEffect(() => {
     if (screen !== 'playing') return;
@@ -142,6 +168,17 @@ export default function App() {
       }
     }
 
+    const numbersPerStep: number[] = [];
+    const stepResultsArr: number[] = [];
+    for (const s of steps) {
+      numbersPerStep.push(s.tokens.filter(t => t.type === 'number').length);
+      stepResultsArr.push(s.result);
+    }
+    if (tokens.length > 0 && currentValue !== null && !expectingNumber) {
+      numbersPerStep.push(tokens.filter(t => t.type === 'number').length);
+      stepResultsArr.push(currentValue);
+    }
+
     const gameResult: GameResult = {
       dayNumber: puzzle.dayNumber,
       date: new Date().toISOString().split('T')[0],
@@ -149,6 +186,8 @@ export default function App() {
       answer,
       score,
       expression: allExprs.join(' → ') || '(no answer)',
+      numbersPerStep,
+      stepResults: stepResultsArr,
     };
 
     saveResult(gameResult);
@@ -278,15 +317,45 @@ export default function App() {
 
     return (
       <div className="flex flex-col items-center justify-center min-h-dvh px-4 py-8">
+        {/* Confetti on exact match */}
+        {result.score === 0 && (
+          <div className="fixed inset-0 pointer-events-none overflow-hidden z-50">
+            {CONFETTI.map((c, i) => (
+              <div
+                key={i}
+                className="absolute"
+                style={{
+                  left: `${c.left}%`,
+                  top: '-12px',
+                  width: c.size,
+                  height: c.size,
+                  background: c.color,
+                  borderRadius: c.round ? '50%' : '2px',
+                  animation: `confetti-fall ${c.duration}s ease-in ${c.delay}s forwards`,
+                }}
+              />
+            ))}
+          </div>
+        )}
+
         {/* Score hero */}
         <div
           className="font-mono text-7xl font-extrabold mb-2"
-          style={{ color: scoreColor }}
+          style={{
+            color: scoreColor,
+            animation: result.score === 0 ? 'score-pop 0.6s ease-out, glow-burst 1s ease-out' : 'none',
+          }}
         >
           {result.score === 0 ? '0' : result.score}
         </div>
-        <div className="text-sm font-medium uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
-          {result.score === 0 ? label : `${label} — ${result.score} off`}
+        <div
+          className="text-sm font-medium uppercase tracking-widest mb-1"
+          style={{
+            color: result.score === 0 ? 'var(--accent)' : 'var(--text-muted)',
+            animation: result.score === 0 ? 'label-fade-in 0.4s ease-out 0.3s both' : 'none',
+          }}
+        >
+          {result.score === 0 ? 'Perfect' : `${label} — ${result.score} off`}
         </div>
         <div className="text-xs mb-8" style={{ color: 'var(--text-dim)' }}>
           Daily Numbers #{result.dayNumber}
@@ -366,39 +435,81 @@ export default function App() {
     const timerPct = (timeLeft / 45) * 100;
     const effectiveDist = effectiveAnswer !== null ? Math.abs(effectiveAnswer - puzzle.target) : null;
 
-    return (
-      <div className="flex flex-col min-h-dvh px-4 py-4">
-        {/* Timer */}
-        <div className="w-full max-w-sm mx-auto mb-1">
-          <div className="rounded-full h-1 overflow-hidden" style={{ background: 'var(--border)' }}>
-            <div
-              className="h-full rounded-full transition-all duration-1000 ease-linear"
-              style={{ width: `${timerPct}%`, background: timerColor }}
-            />
-          </div>
-        </div>
-        <div className="text-center font-mono text-lg font-bold tabular-nums mb-3" style={{ color: timerColor }}>
-          {String(timeLeft).padStart(2, '0')}
-        </div>
+    // SVG ring timer values
+    const ringSize = 120;
+    const ringStroke = 4;
+    const ringRadius = (ringSize - ringStroke) / 2;
+    const ringCircumference = 2 * Math.PI * ringRadius;
+    const ringOffset = ringCircumference * (1 - timerPct / 100);
 
-        {/* Target */}
-        <div className="text-center mb-3">
-          <div className="text-[10px] uppercase tracking-widest mb-1" style={{ color: 'var(--text-dim)' }}>Target</div>
-          <div className="font-mono text-5xl font-extrabold tracking-tight">{puzzle.target}</div>
-          {effectiveAnswer !== null && (
-            <div className="font-mono text-xs mt-1.5 font-medium" style={{ color: effectiveDist === 0 ? 'var(--accent)' : 'var(--text-dim)' }}>
-              {effectiveDist === 0 ? 'EXACT' : `Best: ${effectiveAnswer} (${effectiveDist} off)`}
+    return (
+      <div className="flex flex-col min-h-dvh px-4 py-3">
+        {/* Target with circular timer ring */}
+        <div className="flex flex-col items-center mb-2">
+          <div className="relative flex items-center justify-center" style={{ width: ringSize, height: ringSize }}>
+            {/* Ring track */}
+            <svg
+              className="absolute inset-0"
+              width={ringSize}
+              height={ringSize}
+              style={{ transform: 'rotate(-90deg)' }}
+            >
+              <circle
+                cx={ringSize / 2}
+                cy={ringSize / 2}
+                r={ringRadius}
+                fill="none"
+                stroke="var(--border)"
+                strokeWidth={ringStroke}
+              />
+              <circle
+                cx={ringSize / 2}
+                cy={ringSize / 2}
+                r={ringRadius}
+                fill="none"
+                stroke={timerColor}
+                strokeWidth={timeLeft <= 10 && timeLeft > 0 ? ringStroke + 2 : ringStroke}
+                strokeDasharray={ringCircumference}
+                strokeDashoffset={ringOffset}
+                strokeLinecap="round"
+                style={{ transition: 'stroke-dashoffset 1s linear, stroke-width 0.3s' }}
+              />
+            </svg>
+            {/* Target number inside ring */}
+            <div className="flex flex-col items-center z-10">
+              <div
+                className="font-mono text-4xl font-extrabold tracking-tight"
+                style={{
+                  animation: timeLeft <= 10 && timeLeft > 0 ? 'pulse-urgent 1s ease-in-out infinite' : 'none',
+                  textShadow: timeLeft <= 10 && timeLeft > 0 ? '0 0 30px rgba(232, 69, 60, 0.4)' : 'none',
+                  color: timeLeft <= 10 && timeLeft > 0 ? 'var(--red)' : 'var(--text)',
+                  transition: 'color 0.5s, text-shadow 0.5s',
+                }}
+              >
+                {puzzle.target}
+              </div>
             </div>
-          )}
+          </div>
+          {/* Timer + best answer below ring */}
+          <div className="flex items-center gap-3 mt-1">
+            <div className="font-mono text-xs font-bold tabular-nums" style={{ color: timerColor }}>
+              {String(timeLeft).padStart(2, '0')}s
+            </div>
+            {effectiveAnswer !== null && (
+              <div className="font-mono text-xs font-medium" style={{ color: effectiveDist === 0 ? 'var(--accent)' : 'var(--text-dim)' }}>
+                {effectiveDist === 0 ? '· EXACT' : `· Best: ${effectiveAnswer} (${effectiveDist} off)`}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Completed steps */}
         {steps.length > 0 && (
-          <div className="w-full max-w-sm mx-auto mb-2 space-y-1">
+          <div className="w-full max-w-sm mx-auto mb-1.5 space-y-1">
             {steps.map((s, i) => (
               <div
                 key={i}
-                className="rounded-md px-3 py-1.5 text-xs font-mono flex justify-between items-center"
+                className="rounded-md px-3 py-1 text-xs font-mono flex justify-between items-center"
                 style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
               >
                 <span style={{ color: 'var(--text-dim)' }}>{s.expression}</span>
@@ -412,7 +523,7 @@ export default function App() {
 
         {/* Current expression */}
         <div
-          className="w-full max-w-sm mx-auto rounded-lg p-3 mb-1 min-h-[52px] flex items-center justify-center"
+          className="w-full max-w-sm mx-auto rounded-lg p-3 mb-1.5 min-h-[48px] flex items-center justify-center"
           style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
         >
           {tokens.length === 0 ? (
@@ -431,13 +542,10 @@ export default function App() {
           )}
         </div>
 
-        <div className="h-2" />
-
         {/* Number tiles */}
         <div className="grid grid-cols-3 gap-1.5 w-full max-w-sm mx-auto mb-2">
           {tiles.filter(t => !consumedTileIds.has(t.id)).map(tile => {
             const isUsedInExpr = pendingTileIds.has(tile.id);
-            const isOrigLarge = !tile.derived && tile.id === 0;
             return (
               <button
                 key={tile.id}
@@ -449,22 +557,16 @@ export default function App() {
                     ? 'var(--bg)'
                     : tile.derived
                       ? 'var(--derived-dim)'
-                      : isOrigLarge
-                        ? 'var(--accent-dim)'
-                        : 'var(--surface)',
+                      : 'var(--surface)',
                   color: isUsedInExpr
                     ? 'var(--text-dim)'
                     : tile.derived
                       ? 'var(--derived)'
-                      : isOrigLarge
-                        ? 'var(--accent)'
-                        : 'var(--text)',
+                      : 'var(--text)',
                   opacity: isUsedInExpr ? 0.3 : (!expectingNumber ? 0.4 : 1),
                   border: tile.derived && !isUsedInExpr
                     ? '1px solid var(--derived)'
-                    : isOrigLarge && !isUsedInExpr
-                      ? '1px solid var(--accent)'
-                      : '1px solid var(--border)',
+                    : '1px solid var(--border)',
                 }}
               >
                 {tile.value}
@@ -526,17 +628,18 @@ export default function App() {
           </button>
         </div>
 
-        {/* Submit */}
+        {/* Done */}
         <button
           onClick={handleFinish}
-          className="w-full max-w-sm mx-auto py-3 rounded-lg text-sm font-bold uppercase tracking-wider cursor-pointer"
+          className="w-full max-w-sm mx-auto py-3 rounded-lg text-sm font-bold uppercase tracking-wider cursor-pointer transition-all"
           style={{
             background: effectiveAnswer !== null ? 'var(--accent)' : 'var(--surface)',
             color: effectiveAnswer !== null ? 'var(--accent-text)' : 'var(--text-dim)',
             border: effectiveAnswer !== null ? 'none' : '1px solid var(--border)',
+            boxShadow: effectiveDist === 0 ? '0 0 20px rgba(0, 228, 160, 0.4)' : 'none',
           }}
         >
-          Submit{effectiveAnswer !== null ? ` → ${effectiveAnswer}` : ''}
+          {effectiveAnswer !== null ? `Done → ${effectiveAnswer}` : 'Done'}
         </button>
       </div>
     );
@@ -555,7 +658,7 @@ export default function App() {
         </h1>
         <div className="w-8 h-px mx-auto mb-3" style={{ background: 'var(--accent)' }} />
         <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-          6 numbers. 1 target. 45 seconds.
+          9 numbers. 1 target. 45 seconds.
         </p>
       </div>
 
@@ -589,6 +692,32 @@ export default function App() {
           History
         </button>
       )}
+
+      {/* First-play onboarding */}
+      {showOnboarding && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: 'rgba(8, 9, 14, 0.92)' }}>
+          <div className="w-full max-w-xs rounded-lg p-6" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+            <h2 className="font-mono text-lg font-bold text-center mb-5">How to Play</h2>
+            <div className="space-y-3 text-sm mb-6" style={{ color: 'var(--text-muted)' }}>
+              <p>Combine the 9 numbers using <span className="font-mono font-bold" style={{ color: 'var(--amber)' }}>+ − × ÷</span> to hit the target — or get as close as you can.</p>
+              <div className="space-y-1.5">
+                <p><span className="font-mono font-bold" style={{ color: 'var(--accent)' }}>1.</span> Tap a number</p>
+                <p><span className="font-mono font-bold" style={{ color: 'var(--accent)' }}>2.</span> Tap an operator</p>
+                <p><span className="font-mono font-bold" style={{ color: 'var(--accent)' }}>3.</span> Tap another number</p>
+                <p><span className="font-mono font-bold" style={{ color: 'var(--accent)' }}>4.</span> Press <span className="font-mono font-bold" style={{ color: 'var(--text)' }}>=</span> to lock in your step</p>
+              </div>
+              <p>Use results in your next step. You have <span className="font-bold" style={{ color: 'var(--text)' }}>45 seconds</span>.</p>
+            </div>
+            <button
+              onClick={dismissOnboarding}
+              className="w-full py-3 rounded-lg text-sm font-bold uppercase tracking-wider cursor-pointer active:scale-[0.98] transition-transform"
+              style={{ background: 'var(--accent)', color: 'var(--accent-text)' }}
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -605,6 +734,8 @@ function StatBox({ label, value }: { label: string; value: number | string }) {
 function HistoryScreen({ onBack }: { onBack: () => void }) {
   const history = getHistory().sort((a, b) => b.dayNumber - a.dayNumber);
   const stats = getStats();
+  const distribution = getScoreDistribution();
+  const maxDist = Math.max(...distribution.map(d => d.count), 1);
 
   return (
     <div className="flex flex-col min-h-dvh px-4 py-6">
@@ -627,6 +758,37 @@ function HistoryScreen({ onBack }: { onBack: () => void }) {
         <StatBox label="Streak" value={stats.currentStreak} />
         <StatBox label="Max" value={stats.maxStreak} />
       </div>
+
+      {/* Score distribution */}
+      {stats.played > 0 && (
+        <div className="w-full max-w-sm mx-auto mb-6">
+          <div className="text-[10px] uppercase tracking-widest mb-3" style={{ color: 'var(--text-dim)' }}>
+            Score Distribution
+          </div>
+          <div className="space-y-1.5">
+            {distribution.map(d => (
+              <div key={d.label} className="flex items-center gap-2">
+                <div className="font-mono text-[11px] w-11 text-right" style={{ color: 'var(--text-muted)' }}>
+                  {d.label}
+                </div>
+                <div className="flex-1 h-6 rounded overflow-hidden" style={{ background: 'var(--surface)' }}>
+                  {d.count > 0 && (
+                    <div
+                      className="h-full rounded flex items-center justify-end px-1.5"
+                      style={{
+                        width: `${Math.max((d.count / maxDist) * 100, 14)}%`,
+                        background: d.dimColor,
+                      }}
+                    >
+                      <span className="font-mono text-[11px] font-bold" style={{ color: d.color }}>{d.count}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="w-full max-w-sm mx-auto space-y-1.5 overflow-y-auto flex-1">
         {history.length === 0 ? (

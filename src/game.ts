@@ -32,20 +32,25 @@ export function generatePuzzle(date: Date = new Date()): Puzzle {
   const rand = seededRandom(dateSeed(date));
   const dayNumber = getDayNumber();
 
-  // 1 large number
-  const largeNumbers = [25, 50, 75, 100];
-  const large = largeNumbers[Math.floor(rand() * largeNumbers.length)];
+  // 3 large numbers (no repeats)
+  const largePool = [25, 50, 75, 100];
+  const shuffled = [...largePool];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  const larges = shuffled.slice(0, 3);
 
-  // 5 small numbers (1-10, can repeat)
+  // 6 small numbers (1-10, can repeat)
   const smalls: number[] = [];
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 6; i++) {
     smalls.push(Math.floor(rand() * 10) + 1);
   }
 
-  const numbers = [large, ...smalls];
+  const numbers = [...larges, ...smalls];
 
-  // Target: 100-999
-  const target = Math.floor(rand() * 900) + 100;
+  // Target: 1000-9999 (high targets, not always solvable)
+  const target = Math.floor(rand() * 9000) + 1000;
 
   return { target, numbers, dayNumber };
 }
@@ -138,6 +143,8 @@ export interface GameResult {
   answer: number | null;
   score: number;
   expression: string;
+  numbersPerStep?: number[];
+  stepResults?: number[];
 }
 
 export interface Stats {
@@ -224,14 +231,42 @@ export function getStats(): Stats {
 
 export function getShareText(result: GameResult): string {
   const stats = getStats();
+  const steps = result.numbersPerStep?.length ?? 0;
 
-  const lines = [
-    `Daily Numbers #${result.dayNumber}`,
-    `${result.target} → ${result.answer ?? '—'} [${result.score === 0 ? 'EXACT' : `${result.score} off`}]`,
-  ];
-  if (stats.currentStreak > 1) {
-    lines.push(`Streak: ${stats.currentStreak}`);
+  const lines = [`Daily Numbers #${result.dayNumber}`];
+  lines.push('');
+  lines.push(`🎯 ${result.target}`);
+
+  if (result.score === 0) {
+    lines.push(`✅ Exact${steps ? ` in ${steps} step${steps > 1 ? 's' : ''}` : ''}`);
+  } else {
+    lines.push(`📐 ${result.score} away (${result.answer ?? '—'})`);
   }
-  lines.push('', 'dailynumbers.game'); // placeholder URL
+
+  if (stats.currentStreak > 1) {
+    lines.push(`🔥 ${stats.currentStreak} streak`);
+  }
+
+  lines.push('');
+  lines.push('dailynumbers.game');
   return lines.join('\n');
+}
+
+export function getScoreDistribution(): { label: string; count: number; color: string; dimColor: string }[] {
+  const history = getHistory();
+  const dist = [
+    { label: 'Exact', count: 0, color: 'var(--accent)', dimColor: 'var(--accent-dim)' },
+    { label: 'Close', count: 0, color: 'var(--accent)', dimColor: 'var(--accent-dim)' },
+    { label: 'Near', count: 0, color: 'var(--amber)', dimColor: 'var(--amber-dim)' },
+    { label: 'Fair', count: 0, color: 'var(--amber)', dimColor: 'var(--amber-dim)' },
+    { label: 'Off', count: 0, color: 'var(--red)', dimColor: 'var(--red-dim)' },
+  ];
+  for (const r of history) {
+    if (r.score === 0) dist[0].count++;
+    else if (r.score <= 5) dist[1].count++;
+    else if (r.score <= 10) dist[2].count++;
+    else if (r.score <= 25) dist[3].count++;
+    else dist[4].count++;
+  }
+  return dist;
 }
