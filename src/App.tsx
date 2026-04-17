@@ -658,7 +658,7 @@ export default function App() {
         </h1>
         <div className="w-8 h-px mx-auto mb-3" style={{ background: 'var(--accent)' }} />
         <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-          9 numbers. 1 target. 45 seconds.
+          6 numbers. 1 target. 45 seconds.
         </p>
       </div>
 
@@ -699,7 +699,7 @@ export default function App() {
           <div className="w-full max-w-xs rounded-lg p-6" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
             <h2 className="font-mono text-lg font-bold text-center mb-5">How to Play</h2>
             <div className="space-y-3 text-sm mb-6" style={{ color: 'var(--text-muted)' }}>
-              <p>Combine the 9 numbers using <span className="font-mono font-bold" style={{ color: 'var(--amber)' }}>+ − × ÷</span> to hit the target — or get as close as you can.</p>
+              <p>Combine the 6 numbers using <span className="font-mono font-bold" style={{ color: 'var(--amber)' }}>+ − × ÷</span> to hit the target — or get as close as you can.</p>
               <div className="space-y-1.5">
                 <p><span className="font-mono font-bold" style={{ color: 'var(--accent)' }}>1.</span> Tap a number</p>
                 <p><span className="font-mono font-bold" style={{ color: 'var(--accent)' }}>2.</span> Tap an operator</p>

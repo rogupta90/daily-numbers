@@ -1,18 +1,4 @@
-// Seeded random number generator (deterministic from date)
-function seededRandom(seed: number) {
-  let s = seed;
-  return () => {
-    s = (s * 1664525 + 1013904223) & 0xffffffff;
-    return (s >>> 0) / 0xffffffff;
-  };
-}
-
-function dateSeed(date: Date): number {
-  const y = date.getFullYear();
-  const m = date.getMonth();
-  const d = date.getDate();
-  return y * 10000 + m * 100 + d;
-}
+import puzzleBank from './puzzles.json';
 
 export function getDayNumber(): number {
   const launch = new Date(2026, 2, 16); // March 16, 2026
@@ -28,31 +14,12 @@ export interface Puzzle {
   dayNumber: number;
 }
 
-export function generatePuzzle(date: Date = new Date()): Puzzle {
-  const rand = seededRandom(dateSeed(date));
+export function generatePuzzle(): Puzzle {
   const dayNumber = getDayNumber();
-
-  // 3 large numbers (no repeats)
-  const largePool = [25, 50, 75, 100];
-  const shuffled = [...largePool];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(rand() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  const larges = shuffled.slice(0, 3);
-
-  // 6 small numbers (1-10, can repeat)
-  const smalls: number[] = [];
-  for (let i = 0; i < 6; i++) {
-    smalls.push(Math.floor(rand() * 10) + 1);
-  }
-
-  const numbers = [...larges, ...smalls];
-
-  // Target: 1000-9999 (high targets, not always solvable)
-  const target = Math.floor(rand() * 9000) + 1000;
-
-  return { target, numbers, dayNumber };
+  const bank = puzzleBank.puzzles;
+  // Wrap if we outrun the bank — regenerate JSON well before this matters.
+  const entry = bank[(dayNumber - 1) % bank.length];
+  return { target: entry.target, numbers: entry.numbers, dayNumber };
 }
 
 // Evaluate a postfix expression built from user taps
